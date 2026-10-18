@@ -56,6 +56,16 @@ a.wk{color:var(--acc);text-decoration:none}
 a.wk:hover{text-decoration:underline}
 a.wk code{font-size:12px;word-break:normal}
 
+/* ---------- "Show" switch ---------- */
+.stephead{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.stephead .step{margin:0}
+.seg{display:flex;align-items:center;gap:8px}
+.seg button{border-radius:0;margin-left:-1px;padding:5px 12px}
+.seg button:first-of-type{border-radius:8px 0 0 8px;margin-left:0}
+.seg button:last-of-type{border-radius:0 8px 8px 0}
+.seg button.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600;position:relative}
+@media (prefers-color-scheme:dark){.seg button.on{color:#10131a}}
+
 /* ---------- model list ---------- */
 #rows{max-height:336px;overflow-y:auto;padding:2px 4px 0 0;position:relative}
 .mrow{display:grid;grid-template-columns:26px minmax(0,1fr) minmax(0,1.3fr) 36px;gap:8px;align-items:center;margin-bottom:6px}
@@ -156,7 +166,13 @@ table.sumt{width:100%;border-collapse:collapse;font-size:13px}
 <p class="sub">Find out which animations a creature model really has in your 3.3.5a client, and what a morphed player will look like when it is missing some. The player's own race, gender and class make no difference once morphed: only the creature model counts.</p>
 
 <div class="card">
-  <div class="step">1 · Which models?</div>
+  <div class="stephead">
+    <div class="step">1 · Which models?</div>
+    <div class="seg" id="show" role="group" aria-label="Show">
+      <span class="m s13">Show:</span>
+      <button data-f="">All</button><button data-f="warn">⚠ Works partly</button><button data-f="ok">✓ Works</button>
+    </div>
+  </div>
   <div id="rows"></div>
   <div id="sugg"></div>
   <div class="line" id="quick">
@@ -299,6 +315,7 @@ function verdict(s) {
   if (missing.length) return {code: 'warn', text: 'Works partly: missing ' + missing.join(', ').toLowerCase(), missing};
   return {code: 'ok', text: 'Works: it has every animation a player needs', missing};
 }
+const CODE = SETS.map(s => verdict(s).code);                // verdict code per model index
 const pill = code => `<span class="pill v-${code}">${SYMBOL[code]}</span>`;
 const missingHTML = v => esc(v.missing.join(', ')) || '<span class="m">nothing</span>';
 
@@ -370,15 +387,16 @@ function sourceOf(d) {
 let models = [''];       // what is typed in each row
 let active = -1;         // row whose matches are shown under the list
 let selected = 0;        // row of the summary table shown in detail
-let filter = '';         // '', 'ok', 'warn' or 'bad'
+let filter = '';         // the Show switch: '', 'ok', 'warn' (or 'bad' from the results tally)
 let current = [];        // resolved rows currently shown
 
 try {
   const saved = JSON.parse(localStorage.getItem('mac_state'));
   if (saved && Array.isArray(saved.m) && saved.m.length) models = saved.m.map(String).slice(0, 2000);
+  if (saved && ['', 'ok', 'warn', 'bad'].includes(saved.f)) filter = saved.f;
 } catch (e) { /* storage unavailable: start empty */ }
 function save() {
-  try { localStorage.setItem('mac_state', JSON.stringify({m: models})); } catch (e) { /* ignore */ }
+  try { localStorage.setItem('mac_state', JSON.stringify({m: models, f: filter})); } catch (e) { /* ignore */ }
 }
 
 /* =====================================================================
@@ -478,10 +496,12 @@ function renderRow(i) {
     const parts = [];
     if (r.creatures.length) parts.push(plural(r.creatures.length, 'creature').replace(/^400 /, '400+ '));
     if (r.files.length) parts.push(plural(r.files.length, 'model file'));
-    res.innerHTML = parts.length
-      ? `<span class="m">${parts.join(' and ')} match, pick one below</span>`
-      : '<span style="color:var(--bad)">no creature or model with that name</span>';
-    if (i === active && parts.length) { suggEl.innerHTML = matchesHTML(r); row.classList.add('act'); }
+    const shown = shownMatches(r);
+    const total = r.creatures.length + r.files.length, visible = shown.creatures.length + shown.files.length;
+    if (!parts.length) res.innerHTML = '<span style="color:var(--bad)">no creature or model with that name</span>';
+    else if (!visible) res.innerHTML = `<span class="m">${parts.join(' and ')} match, but none ${COUNT_WORD[filter]} (set Show to All to see them)</span>`;
+    else res.innerHTML = `<span class="m">${parts.join(' and ')} match${visible < total ? `, ${visible} ${COUNT_WORD[filter]}` : ''}, pick one below</span>`;
+    if (i === active && visible) { suggEl.innerHTML = matchesHTML(shown, total - visible); row.classList.add('act'); }
   } else {
     const v = verdict(SETS[r.mi]), cat = categoryOf(r.did), name = nameOf(r);
     if (cat) row.style.setProperty('--c', cat.color);
@@ -491,7 +511,12 @@ function renderRow(i) {
   }
 }
 
-function matchesHTML(r) {
+/* the matches that pass the Show filter */
+function shownMatches(r) {
+  const pass = mi => !filter || CODE[mi] === filter;
+  return {creatures: r.creatures.filter(([, d]) => pass(D.displays[d])), files: r.files.filter(pass)};
+}
+function matchesHTML(r, hidden) {
   let h = `<div class="sh"><span></span><span>Source</span><span>Name</span><span>Model</span><span>${WIKI_ENTRY}</span><span>${WIKI_DISPLAY}</span><span>Missing</span></div>`;
   r.creatures.slice(0, MAX_MATCHES).forEach(([ci, d]) => {
     const c = CREATURES[ci], mi = D.displays[d], v = verdict(SETS[mi]);
@@ -510,6 +535,7 @@ function matchesHTML(r) {
       <span class="miss cut">${missingHTML(v)}</span></button>`;
   });
   if (r.creatures.length + r.files.length > MAX_MATCHES) h += '<div class="m s13 more">Showing the first matches. Keep typing to narrow it down.</div>';
+  if (hidden) h += `<div class="m s13 more">${hidden} more hidden by the Show switch.</div>`;
   return h;
 }
 
@@ -595,29 +621,33 @@ $('clear').onclick = () => { models = ['']; selected = 0; refresh(); };
   $('quick').insertBefore(b, $('quick').querySelector('.sp'));
 });
 
-/* examples dropdown */
-(function () {
+/* examples dropdown (follows the Show switch) */
+let exampleSets = {};
+function buildExamples() {
   if (!EXAMPLES.length) { $('exline').style.display = 'none'; return; }
-  const unique = list => [...new Set(list.map(e => e.d))];
+  const list = EXAMPLES.filter(e => D.displays[e.d] !== undefined && (!filter || CODE[D.displays[e.d]] === filter));
+  const unique = l => [...new Set(l.map(e => e.d))];
   const isPerk = e => e.g.startsWith('Class perk');
-  const sets = {all: unique(EXAMPLES), cos: unique(EXAMPLES.filter(e => !isPerk(e))), per: unique(EXAMPLES.filter(isPerk))};
+  exampleSets = {all: unique(list), cos: unique(list.filter(e => !isPerk(e))), per: unique(list.filter(isPerk))};
+  const that = filter ? ' that ' + COUNT_WORD[filter] : '';
   const groups = {};
-  EXAMPLES.forEach(e => (groups[e.g] = groups[e.g] || []).push(e));
-  let h = `<option value="all">All ${sets.all.length} examples</option>
-    <option value="cos">All costumes (${sets.cos.length})</option>
-    <option value="per">All class perks (${sets.per.length})</option>`;
+  list.forEach(e => (groups[e.g] = groups[e.g] || []).push(e));
+  let h = `<option value="all">All ${exampleSets.all.length} examples${that}</option>
+    <option value="cos">All costumes${that} (${exampleSets.cos.length})</option>
+    <option value="per">All class perks${that} (${exampleSets.per.length})</option>`;
   for (const g in groups) {
-    h += `<optgroup label="${esc(g)}">` + groups[g].map(e => {
-      const mi = D.displays[e.d];
-      return `<option value="${e.d}">${mi === undefined ? '?' : SYMBOL[verdict(SETS[mi]).code]} ${esc(e.n)} (${e.d})</option>`;
-    }).join('') + '</optgroup>';
+    h += `<optgroup label="${esc(g)}">` + groups[g].map(e => `<option value="${e.d}">${SYMBOL[CODE[D.displays[e.d]]]} ${esc(e.n)} (${e.d})</option>`).join('') + '</optgroup>';
   }
+  const keep = $('exsel').value;
   $('exsel').innerHTML = h;
-  $('exadd').onclick = () => {
-    const v = $('exsel').value, n = addModels(sets[v] || [+v]);
-    say(n ? `Added ${plural(n, 'model')} to the list.` : 'Already in the list.');
-  };
-})();
+  if ([...$('exsel').options].some(o => o.value === keep)) $('exsel').value = keep;
+}
+$('exadd').onclick = () => {
+  const v = $('exsel').value, list = exampleSets[v] || [+v];
+  if (!list.length) { say('No examples match the Show switch.', true); return; }
+  const n = addModels(list);
+  say(n ? `Added ${plural(n, 'model')} to the list.` : 'Already in the list.');
+};
 
 /* =====================================================================
    Results
@@ -640,11 +670,12 @@ function compare(s) {
 function renderResults() {
   current = resolvedRows();
   if (!current.length) { out.innerHTML = ''; return; }
-  const codeOf = r => verdict(SETS[r.mi]).code;
-  if (filter && !current.some(r => codeOf(r) === filter)) filter = '';
-  if (selected >= current.length) selected = 0;
-  if (filter && codeOf(current[selected]) !== filter) selected = current.findIndex(r => codeOf(r) === filter);
-  out.innerHTML = (current.length > 1 ? summaryHTML(current, false) : '') + `<div id="detail">${detailHTML(current[selected])}</div>`;
+  const visible = r => !filter || CODE[r.mi] === filter;
+  if (selected >= current.length || !visible(current[selected])) selected = Math.max(0, current.findIndex(visible));
+  const any = current.some(visible);
+  const detail = any ? detailHTML(current[selected])
+    : `<div class="card m">None of the ${plural(current.length, 'model')} in the list ${COUNT_WORD[filter]}. Set Show to All to see them.</div>`;
+  out.innerHTML = (current.length > 1 || !any ? summaryHTML(current, false) : '') + `<div id="detail">${detail}</div>`;
 }
 
 /* `forExport` gives the plain version used by the downloaded HTML page: no filter buttons, row links instead of clicks */
@@ -713,7 +744,7 @@ function detailHTML(r) {
 
 out.addEventListener('click', e => {
   const f = e.target.closest('.fp');
-  if (f) { filter = filter === f.dataset.f ? '' : f.dataset.f; renderResults(); return; }
+  if (f) { setFilter(filter === f.dataset.f ? '' : f.dataset.f); return; }
   const tr = e.target.closest('.sumt tbody tr');
   if (!tr) return;
   selected = +tr.dataset.r;
@@ -941,8 +972,18 @@ async function zipBlob(files, type) {
 /* =====================================================================
    Start
    ===================================================================== */
-renderRows();
-renderResults();
+/* the Show switch: one filter for the search matches, the examples list and the results */
+function setFilter(f) {
+  filter = f;
+  save();
+  document.querySelectorAll('#show button').forEach(b => b.classList.toggle('on', b.dataset.f === filter));
+  renderRows();
+  buildExamples();
+  renderResults();
+}
+$('show').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setFilter(b.dataset.f); });
+
+setFilter(filter);
 scrollToLast();
 </script>
 </main>
