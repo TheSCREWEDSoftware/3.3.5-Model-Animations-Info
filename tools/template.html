@@ -1,0 +1,950 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Model Animation Checker (3.3.5a)</title>
+<style>
+/* ---------- theme ---------- */
+:root{
+  --bg:#f4f2ec; --card:#fff; --ink:#1d1f23; --mute:#646a75; --line:#d9d5ca; --soft:#ebe8df;
+  --ok:#1d7a46; --okbg:#e2f3e8; --bad:#b3261e; --badbg:#fbe6e4; --warn:#8a5a00; --warnbg:#fbf0d4; --acc:#2b5fb3;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#15171b; --card:#1e2127; --ink:#e8e8ea; --mute:#9aa0ab; --line:#343841; --soft:#272b33;
+  --ok:#6fd29a; --okbg:#17362a; --bad:#ff8f86; --badbg:#44201d; --warn:#f0c264; --warnbg:#3d3115; --acc:#8ab4ff;
+}}
+html{color-scheme:light dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Segoe UI",system-ui,sans-serif}
+main{max-width:1600px;margin:0 auto;padding:24px 16px 70px}
+h1{font-size:23px;margin:0 0 2px}
+h2{font-size:15px;margin:0 0 8px}
+code{font-family:Consolas,monospace;font-size:13px;word-break:break-all}
+.sub{color:var(--mute);margin:0 0 16px}
+.m{color:var(--mute)}
+.s13{font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-top:14px}
+.step{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin-bottom:8px}
+
+/* ---------- controls ---------- */
+input[type=text],select{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:0}
+input[type=text]:focus,select:focus{outline:2px solid var(--acc);outline-offset:1px}
+button{font:inherit;font-size:13px;color:inherit;background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--acc)}
+button.pri{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+@media (prefers-color-scheme:dark){button.pri{color:#10131a}}
+.line{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px}
+.line .sp{flex:1}
+.line select{max-width:420px;flex:1 1 240px;font-size:14px}
+.chipb{border-radius:999px;padding:3px 11px}
+.sum{font-size:13px;color:var(--mute);margin-top:8px}
+#code{flex:1 1 260px;font-family:Consolas,monospace;font-size:13px}
+
+/* ---------- shared bits: verdict pill, category badge, icon, wiki link ---------- */
+.pill{display:inline-block;min-width:26px;padding:1px 9px;border-radius:999px;font-weight:700;font-size:12px;text-align:center}
+.v-ok{background:var(--okbg);color:var(--ok)}
+.v-warn{background:var(--warnbg);color:var(--warn)}
+.v-bad{background:var(--badbg);color:var(--bad)}
+.ico{display:inline-block;width:20px;height:20px;border-radius:4px;background-size:cover;vertical-align:middle}
+.cat{display:inline-block;font-size:12px;line-height:1.5;padding:0 8px;border-radius:999px;border:1px solid var(--c);background:color-mix(in srgb,var(--c) 20%,transparent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* icon slot + badge of one fixed width, so rows line up whether or not they have an icon */
+.catbox{display:grid;grid-template-columns:20px 216px;gap:6px;align-items:center}
+.catbox .cat{width:100%;text-align:center}
+code.file{background:var(--soft);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:12px;word-break:normal}
+a.wk{color:var(--acc);text-decoration:none}
+a.wk:hover{text-decoration:underline}
+a.wk code{font-size:12px;word-break:normal}
+
+/* ---------- model list ---------- */
+#rows{max-height:336px;overflow-y:auto;padding:2px 4px 0 0;position:relative}
+.mrow{display:grid;grid-template-columns:26px minmax(0,1fr) minmax(0,1.3fr) 36px;gap:8px;align-items:center;margin-bottom:6px}
+.mrow .num{color:var(--mute);font-size:13px;text-align:right}
+.mrow input{width:100%;font-size:16px;padding:8px 11px;border-left:5px solid var(--c,var(--line))}
+.mrow.act input{outline:2px solid var(--acc);outline-offset:1px}
+.mrow .rm,#add{width:36px;height:36px;padding:0;font-size:20px;line-height:1;font-weight:600}
+.inw{position:relative;display:block;min-width:0}
+.inl{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--mute);white-space:nowrap;background:var(--bg);padding-left:8px}
+.inl b{color:var(--ink);font-weight:600}
+.inl:empty{display:none}
+.res{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.res.err{color:var(--bad)}
+.res.hit{display:grid;grid-template-columns:38px 242px minmax(0,1fr);gap:8px;align-items:center}
+.res.hit .what{overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- search matches (table under the list) ---------- */
+#sugg{display:grid;margin:8px 0 2px 34px;max-height:min(430px,42vh);overflow-y:auto;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+#sugg:empty{display:none}
+#sugg .sh,#sugg button{display:grid;grid-template-columns:38px 196px minmax(0,1.1fr) 170px 70px 210px minmax(0,1fr);gap:8px;align-items:center}
+#sugg .sh{position:sticky;top:0;z-index:1;background:var(--soft);font-size:12px;font-weight:600;padding:5px 10px}
+#sugg button{width:100%;text-align:left;font-size:13px;padding:4px 10px;border:0;border-top:1px solid var(--line);border-radius:0;background:none}
+#sugg button:hover{background:var(--soft)}
+#sugg small{color:var(--mute);font-size:12px}
+#sugg .cut{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#sugg .cat{justify-self:start}
+#sugg .num{font-variant-numeric:tabular-nums}
+#sugg .miss{color:var(--bad);font-size:12px}
+#sugg .more{padding:5px 10px;border-top:1px solid var(--line)}
+
+/* ---------- results ---------- */
+.verdict{display:flex;gap:14px;align-items:flex-start}
+.verdict h2{font-size:19px;margin:0 0 2px}
+.badge{flex:none;width:54px;height:54px;border-radius:12px;display:grid;place-items:center;font-size:28px;font-weight:700}
+ul.notice{margin:10px 0 0;padding:0;list-style:none}
+ul.notice li{padding:5px 0 5px 24px;position:relative;border-top:1px solid var(--line)}
+ul.notice li::before{content:"✗";position:absolute;left:2px;color:var(--bad);font-weight:700}
+ul.notice li.good::before{content:"✓";color:var(--ok)}
+.groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:14px}
+.groups .card{margin:0}
+.it{display:grid;grid-template-columns:20px 1fr;gap:4px;padding:4px 0;border-top:1px solid var(--line);font-size:14px}
+.it:first-of-type{border-top:0}
+.it small{color:var(--mute);display:block}
+.it.missing b{color:var(--bad);font-weight:600}
+.y{color:var(--ok);font-weight:700}
+.n{color:var(--bad);font-weight:700}
+details{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-top:10px;padding:0 16px}
+details[open]{padding-bottom:14px}
+summary{cursor:pointer;padding:11px 0;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{font-size:12px;border:1px solid var(--line);border-radius:5px;padding:2px 7px;background:var(--bg)}
+.chip.miss{border-color:var(--bad);color:var(--bad)}
+.chip small{color:var(--mute)}
+.dh{margin:26px 0 0;font-size:17px}
+
+/* summary table */
+.tw{overflow:auto;max-height:520px;border:1px solid var(--line);border-radius:8px;margin-top:8px}
+table.sumt{width:100%;border-collapse:collapse;font-size:13px}
+.sumt th{position:sticky;top:0;z-index:1;background:var(--soft);text-align:left;padding:6px 5px;font-size:12px;white-space:nowrap}
+.sumt td{padding:5px;border-top:1px solid var(--line);white-space:nowrap}
+.sumt .c{text-align:center}
+.sumt td.nm{max-width:230px;overflow:hidden;text-overflow:ellipsis}
+.sumt td.md{max-width:170px;overflow:hidden;text-overflow:ellipsis}
+.sumt td.ct{box-shadow:inset 4px 0 0 var(--c,transparent);padding-left:10px}
+.sumt td.ms{color:var(--bad);white-space:normal;min-width:150px}
+.sumt tbody tr{cursor:pointer}
+.sumt tbody tr:hover{background:var(--bg)}
+.sumt tr.sel{background:var(--soft)}
+.sumt tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--acc)}
+.sumt a{color:inherit}
+.fp{background:none;border:1px solid transparent;border-radius:999px;padding:2px 9px 2px 3px;font-size:13px}
+.fp.on{border-color:var(--acc);background:var(--soft);color:var(--ink);font-weight:600}
+.fp.dim{opacity:.5}
+.fp.all{padding:2px 10px;border-color:var(--line)}
+
+/* ---------- narrower windows ---------- */
+@media (max-width:1250px){
+  #sugg .sh,#sugg button{grid-template-columns:38px minmax(0,1fr) 130px 60px 70px minmax(0,1fr)}
+  #sugg .sh>:nth-child(2),#sugg button>:nth-child(2){display:none}
+}
+@media (max-width:1100px){
+  .inl{display:none}
+  .catbox{grid-template-columns:20px auto}
+  .res.hit{grid-template-columns:38px auto minmax(0,1fr)}
+}
+@media (max-width:760px){
+  .mrow{grid-template-columns:22px minmax(0,1fr) 36px}
+  .mrow .res{grid-column:2/4;grid-row:2}
+  #sugg{margin-left:0}
+  #sugg .sh,#sugg button{grid-template-columns:34px minmax(0,1fr) 60px minmax(0,1fr)}
+  #sugg .sh>:nth-child(4),#sugg .sh>:nth-child(5),#sugg button>:nth-child(4),#sugg button>:nth-child(5){display:none}
+}
+</style>
+</head>
+<body>
+<main>
+<h1>Model Animation Checker</h1>
+<p class="sub">Find out which animations a creature model really has in your 3.3.5a client, and what a morphed player will look like when it is missing some. The player's own race, gender and class make no difference once morphed: only the creature model counts.</p>
+
+<div class="card">
+  <div class="step">1 · Which models?</div>
+  <div id="rows"></div>
+  <div id="sugg"></div>
+  <div class="line" id="quick">
+    <span class="m s13">Shapeshift forms:</span>
+    <span class="sp"></span>
+    <button id="clear" title="Remove every model from the list">Clear list</button>
+    <button id="add" class="pri" title="Add another model" aria-label="Add another model">+</button>
+  </div>
+  <div class="line" id="exline">
+    <span class="m s13">Examples:</span>
+    <select id="exsel" aria-label="Examples"></select>
+    <button id="exadd">Add to list</button>
+    <span class="sp"></span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="step">2 · Share or export</div>
+  <div class="line" style="margin-top:0">
+    <input type="text" id="code" placeholder="Paste a share code here, then press Load code" aria-label="Share code">
+    <button id="load">Load code</button>
+    <button id="copy">Copy my code</button>
+    <span class="sp"></span>
+    <button id="xlsx">Download Excel</button>
+    <button id="html">Download HTML page</button>
+  </div>
+  <div class="sum" id="msg">A share code holds the model list, so someone else can open this page and see the same thing.</div>
+</div>
+
+<div id="out"></div>
+
+<script id="data" type="application/json">__PAYLOAD__</script>
+<script id="icons" type="application/json">__ICONS__</script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+
+/* =====================================================================
+   Data (embedded by tools/make_page.py)
+   ===================================================================== */
+const D = JSON.parse($('data').textContent);
+const ICONS = JSON.parse($('icons').textContent);          // icon key -> data URI
+
+const ANIM = D.anims;                                       // id -> [name, fallback id]
+const MODELS = D.models;                                    // [path, [animation ids], source archive]
+const SETS = MODELS.map(m => new Set(m[1]));                // animation ids per model
+const COMMON = new Set(D.common);                           // animations every playable race/gender has
+const FORM_ICONS = D.formicons || {};                       // display id -> icon key (stock shapeshift forms)
+
+const MODEL_BY_PATH = {};
+MODELS.forEach((m, i) => MODEL_BY_PATH[m[0]] = i);
+
+const DISPLAYS_OF_MODEL = {};                               // model index -> sorted display ids
+for (const [d, mi] of Object.entries(D.displays)) (DISPLAYS_OF_MODEL[mi] = DISPLAYS_OF_MODEL[mi] || []).push(+d);
+for (const k in DISPLAYS_OF_MODEL) DISPLAYS_OF_MODEL[k].sort((a, b) => a - b);
+
+/* examples: {d: display id, n: name, g: category, i: icon key} */
+const EXAMPLES = D.examples || [];
+const EXAMPLE_OF = {};                                      // display id -> {names, g, i}
+EXAMPLES.forEach(e => {
+  const x = EXAMPLE_OF[e.d] = EXAMPLE_OF[e.d] || {names: [], g: e.g, i: e.i};
+  if (!x.names.includes(e.n)) x.names.push(e.n);
+});
+
+/* creatures from creature_template: [entry, name, subname, [display ids]] */
+const CREATURES = D.creatures || [];
+const CREATURE_TEXT = CREATURES.map(c => (c[1] + (c[2] ? ' ' + c[2] : '')).toLowerCase());
+const CREATURES_OF_DISPLAY = {};
+CREATURES.forEach((c, i) => c[3].forEach(d => (CREATURES_OF_DISPLAY[d] = CREATURES_OF_DISPLAY[d] || []).push(i)));
+
+/* icons become CSS classes (.i<key>) so each image is embedded only once */
+const ICON_CSS = Object.keys(ICONS).map(k => `.i${k}{background-image:url(${ICONS[k]})}`).join('');
+document.head.appendChild(Object.assign(document.createElement('style'), {textContent: ICON_CSS}));
+
+/* =====================================================================
+   Small helpers
+   ===================================================================== */
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const plural = (n, word) => n + ' ' + word + (n === 1 ? '' : 's');
+const animName = id => ANIM[id] ? ANIM[id][0] : '#' + id;
+const fileName = path => path.split('\\').pop();
+const folderName = path => path.split('\\').slice(0, -1).join('\\');
+
+const wikiLink = (page, column, anchor) =>
+  `<a class="wk" href="https://www.azerothcore.org/wiki/${page}${anchor ? '#' + anchor : ''}" target="_blank" rel="noopener" title="${page}.${column} (opens the AzerothCore wiki)"><code>${column}</code></a>`;
+const WIKI_ENTRY = wikiLink('creature_template', 'entry', 'entry');
+const WIKI_DISPLAY = wikiLink('creature_template_model', 'CreatureDisplayID') + ' / ' + wikiLink('creature_model_info', 'DisplayID');
+
+/* =====================================================================
+   Animation rules
+   ===================================================================== */
+/* What the client plays for animation `id` on a model that owns the set `s`:
+   follows the fallback column of AnimationData.dbc. Returns an animation id, or null. */
+function plays(s, id) {
+  const seen = new Set();
+  let cur = id;
+  while (!s.has(cur)) {
+    if (seen.has(cur) || !ANIM[cur]) return null;
+    seen.add(cur);
+    cur = ANIM[cur][1];
+  }
+  return cur;
+}
+const playsText = id => id === null ? 'nothing' : id === 0 ? 'Stand (frozen pose)' : animName(id);
+
+/* the ten things a morphed player needs; these are the columns of the summary table */
+const NEEDS = [
+  ['Move',    s => s.has(4) || s.has(5)],
+  ['Jump',    s => [37, 38, 39].every(i => s.has(i))],
+  ['Fall',    s => s.has(40)],
+  ['Swim',    s => s.has(41) && s.has(42)],
+  ['Strafe',  s => s.has(11) && s.has(12)],
+  ['Attack',  s => !!plays(s, 16)],
+  ['Cast',    s => !!plays(s, 53)],
+  ['Death',   s => s.has(1)],
+  ['Sit',     s => s.has(97)],
+  ['Mounted', s => s.has(91)],
+];
+
+/* the animations listed in the detail cards */
+const DETAIL_GROUPS = [
+  ['Moving', [['Walk', 4], ['Run', 5], ['Walk backwards', 13], ['Strafe left', 11], ['Strafe right', 12], ['Sprint', 143]]],
+  ['Jumping and falling', [['Jump start', 37], ['Jump (in the air)', 38], ['Jump landing', 39], ['Landing while running', 187], ['Fall', 40]]],
+  ['Swimming', [['Swim idle', 41], ['Swim forward', 42], ['Swim left', 43], ['Swim right', 44], ['Swim backwards', 45]]],
+  ['Combat', [['Combat ready', 25], ['Attack unarmed', 16], ['Attack one-handed', 17], ['Attack two-handed', 18], ['Getting hit', 9], ['Stun', 14], ['Death', 1]]],
+  ['Casting', [['Ready spell (directed)', 51], ['Ready spell (omni)', 52], ['Cast (directed)', 53], ['Cast (omni)', 54], ['Channel', 124]]],
+  ['Other', [['Sit', 97], ['Riding a mount', 91], ['Loot', 50], ['Sleep', 100], ['Kneel', 115]]],
+];
+
+const SYMBOL = {ok: '✓', warn: '⚠', bad: '✗'};
+const WORD = {ok: 'Yes', warn: 'Partly', bad: 'No'};
+const COUNT_WORD = {ok: 'work', warn: 'work partly', bad: 'do not work'};
+
+/* ok = has everything in NEEDS, warn = some missing, bad = cannot walk, run or swim */
+function verdict(s) {
+  const missing = NEEDS.filter(n => !n[1](s)).map(n => n[0]);
+  const walks = s.has(4) || s.has(5), swims = s.has(42);
+  if (!walks && !swims) return {code: 'bad', text: 'Does not work: it has no walk, run or swim animation, so it slides everywhere', missing};
+  if (!walks) return {code: 'warn', text: 'Works in water only: it swims, but has no walk or run animation, so it slides on land', missing};
+  if (missing.length) return {code: 'warn', text: 'Works partly: missing ' + missing.join(', ').toLowerCase(), missing};
+  return {code: 'ok', text: 'Works: it has every animation a player needs', missing};
+}
+const pill = code => `<span class="pill v-${code}">${SYMBOL[code]}</span>`;
+const missingHTML = v => esc(v.missing.join(', ')) || '<span class="m">nothing</span>';
+
+/* plain-language list of what a player would notice */
+function notices(s) {
+  const out = [];
+  if (!s.has(4) && !s.has(5)) out.push('<b>Moving on land:</b> slides along without moving its legs.');
+  const jump = [37, 38, 39].filter(i => !s.has(i));
+  if (jump.length === 3) out.push('<b>Jumping:</b> no jump animation at all, so it glides through the air in its standing pose.');
+  else if (jump.length) out.push('<b>Jumping:</b> missing ' + jump.map(i => ({37: 'the take-off', 38: 'the in-air part', 39: 'the landing'}[i])).join(' and ') + ', so it freezes in its standing pose for that part of the jump.');
+  if (!s.has(40)) out.push(`<b>Falling:</b> plays ${esc(playsText(plays(s, 40)))} instead.`);
+  if (!s.has(42)) out.push(`<b>Swimming:</b> moves through water playing ${esc(playsText(plays(s, 42)))}.`);
+  else if (!s.has(41)) out.push('<b>Swimming:</b> no idle swim animation.');
+  if (!s.has(11) || !s.has(12)) out.push('<b>Strafing:</b> slides sideways.');
+  if (!plays(s, 16)) out.push('<b>Melee attacks:</b> no attack animation, hits happen with no swing.');
+  if (!s.has(1)) out.push('<b>Dying:</b> no death animation.');
+  if (!plays(s, 53)) out.push('<b>Casting:</b> no cast animation.');
+  if (!s.has(91)) out.push('<b>Riding a mount:</b> no seated pose, stands on the mount.');
+  if (!s.has(97)) out.push('<b>Sitting:</b> stays standing.');
+  return out;
+}
+
+/* =====================================================================
+   Names and categories of a display ID
+   ===================================================================== */
+const CATEGORY_COLORS = [
+  ['Uncommon', '#1eff00'], ['Rare', '#0070dd'], ['Legendary', '#ff8000'], ['Epic', '#a335ee'], ['Tier', '#e6cc80'],
+  ['Class perk', '#00c8b4'], ['Shapeshift', '#8a8f98'], ['Table', '#c79c6e'], ['Model file', '#8a8f98'],
+];
+const colorOf = name => (CATEGORY_COLORS.find(c => name.startsWith(c[0])) || [0, '#8a8f98'])[1];
+const CREATURE_CATEGORY = 'Table: creature_template';
+
+function creatureNames(d) {
+  const list = CREATURES_OF_DISPLAY[d];
+  if (!list) return '';
+  const names = [...new Set(list.map(i => CREATURES[i][1]))];
+  return names.slice(0, 2).join(' / ') + (names.length > 2 ? ` +${names.length - 2} more` : '');
+}
+function nameOfDisplay(d) {
+  if (d == null) return '';
+  if (EXAMPLE_OF[d]) return EXAMPLE_OF[d].names.join(' / ');
+  if (D.forms[d]) return D.forms[d].join(' / ');
+  return creatureNames(d);
+}
+/* a row picked by creature keeps that creature's name, unless the display is a known example */
+const nameOf = r => r.name && !EXAMPLE_OF[r.did] ? r.name : nameOfDisplay(r.did);
+
+function categoryOf(d) {
+  if (d == null) return null;
+  const name = EXAMPLE_OF[d] ? EXAMPLE_OF[d].g : D.forms[d] ? 'Shapeshift form' : CREATURES_OF_DISPLAY[d] ? CREATURE_CATEGORY : '';
+  if (!name) return null;
+  return {name, color: colorOf(name), icon: EXAMPLE_OF[d] ? EXAMPLE_OF[d].i : FORM_ICONS[d] || ''};
+}
+const badge = name => `<span class="cat" style="--c:${colorOf(name)}">${esc(name)}</span>`;
+/* fixed-width icon slot + badge, so rows with and without an icon line up */
+function categoryBox(d) {
+  const c = categoryOf(d);
+  return `<span class="catbox"><span class="ico${c && c.icon ? ' i' + c.icon : ''}"></span>${c ? badge(c.name) : '<span></span>'}</span>`;
+}
+function sourceOf(d) {
+  if (d == null) return '';
+  if (EXAMPLE_OF[d]) return EXAMPLE_OF[d].g.startsWith('Class perk') ? 'Class perk' : 'Costume';
+  return D.forms[d] ? 'Shapeshift form' : CREATURES_OF_DISPLAY[d] ? 'creature_template' : '';
+}
+
+/* =====================================================================
+   State
+   ===================================================================== */
+let models = [''];       // what is typed in each row
+let active = -1;         // row whose matches are shown under the list
+let selected = 0;        // row of the summary table shown in detail
+let filter = '';         // '', 'ok', 'warn' or 'bad'
+let current = [];        // resolved rows currently shown
+
+try {
+  const saved = JSON.parse(localStorage.getItem('mac_state'));
+  if (saved && Array.isArray(saved.m) && saved.m.length) models = saved.m.map(String).slice(0, 2000);
+} catch (e) { /* storage unavailable: start empty */ }
+function save() {
+  try { localStorage.setItem('mac_state', JSON.stringify({m: models})); } catch (e) { /* ignore */ }
+}
+
+/* =====================================================================
+   Turning typed text into a model
+   ===================================================================== */
+/* Returns null (empty), {error}, {creatures, files} (several matches to pick from),
+   or {mi, did, name, entry} (resolved). */
+function resolve(text) {
+  const v = (text || '').trim();
+  if (!v) return null;
+
+  if (/^\d+$/.test(v)) {                                    // a display ID
+    const mi = D.displays[v];
+    if (mi !== undefined) return {mi, did: +v};
+    return {error: D.broken[v] ? 'points at ' + D.broken[v] + ', which is not in the client' : 'no such display ID'};
+  }
+
+  const lower = v.toLowerCase();
+  if (MODEL_BY_PATH[lower] !== undefined) return fromModel(MODEL_BY_PATH[lower]);
+
+  const creatures = [];                                     // [creature index, display id]
+  const files = [];                                         // model indexes
+  const usable = d => D.displays[d] !== undefined;
+  const byEntry = lower.match(/^(?:npc|entry|creature)\s*[:#]?\s*(\d+)(?:\s*\/\s*(\d+))?$/);
+  if (byEntry) {                                            // "npc 448" or "npc 448/384"
+    CREATURES.forEach((c, ci) => {
+      if (c[0] === +byEntry[1]) c[3].forEach(d => { if (usable(d) && (!byEntry[2] || d === +byEntry[2])) creatures.push([ci, d]); });
+    });
+  } else {
+    MODELS.forEach((m, k) => { if (m[0].includes(lower)) files.push(k); });
+    if (lower.length >= 3) {
+      for (let ci = 0; ci < CREATURES.length && creatures.length < 400; ci++) {
+        if (CREATURE_TEXT[ci].includes(lower)) CREATURES[ci][3].forEach(d => { if (usable(d)) creatures.push([ci, d]); });
+      }
+      const rank = x => { const n = CREATURES[x[0]][1].toLowerCase(); return n === lower ? 0 : n.startsWith(lower) ? 1 : 2; };
+      creatures.sort((a, b) => rank(a) - rank(b));
+    }
+  }
+
+  const displays = [...new Set(creatures.map(x => x[1]))];
+  if (files.length === 1 && !creatures.length) return fromModel(files[0]);
+  if (!files.length && displays.length === 1) {
+    const entries = [...new Set(creatures.map(x => CREATURES[x[0]][0]))];
+    return {
+      mi: D.displays[displays[0]], did: displays[0],
+      name: [...new Set(creatures.map(x => CREATURES[x[0]][1]))].slice(0, 2).join(' / '),
+      entry: entries.length === 1 ? entries[0] : null,
+    };
+  }
+  return {creatures, files};
+}
+function fromModel(mi) {
+  return {mi, did: DISPLAYS_OF_MODEL[mi] ? DISPLAYS_OF_MODEL[mi][0] : null};
+}
+const isResolved = r => r && r.mi !== undefined;
+
+/* =====================================================================
+   Model list (step 1)
+   ===================================================================== */
+const rowsEl = $('rows'), suggEl = $('sugg');
+const MAX_MATCHES = 30;
+const rowEl = i => rowsEl.querySelector(`.mrow[data-i="${i}"]`);
+
+function renderRows() {
+  const scroll = rowsEl.scrollTop;
+  if (active < 0 || active >= models.length) active = models.length - 1;
+  rowsEl.innerHTML = models.map((v, i) => `
+    <div class="mrow" data-i="${i}">
+      <span class="num">${i + 1}</span>
+      <span class="inw"><input type="text" value="${esc(v)}" placeholder="Display ID (15374), creature name (Hogger) or model name (owlbear)" aria-label="Model ${i + 1}"><span class="inl"></span></span>
+      <span class="res"></span>
+      <button class="rm" title="Remove this model" aria-label="Remove model ${i + 1}">−</button>
+    </div>`).join('');
+  suggEl.innerHTML = '';
+  models.forEach((_, i) => renderRow(i));
+  rowsEl.scrollTop = scroll;
+}
+
+/* fills in one row: the text next to the box, the label inside it, and (for the active row) the matches table */
+function renderRow(i) {
+  const row = rowEl(i);
+  if (!row) return;
+  const res = row.querySelector('.res'), inside = row.querySelector('.inl');
+  const r = resolve(models[i]);
+  res.className = 'res';
+  inside.innerHTML = '';
+  row.style.removeProperty('--c');
+  row.classList.remove('act');
+  if (i === active) suggEl.innerHTML = '';
+
+  if (!r) {
+    res.innerHTML = `<span class="m">display ID, creature name, model name, or "npc 448" for a ${WIKI_ENTRY}</span>`;
+  } else if (r.error) {
+    res.className = 'res err';
+    res.textContent = r.error;
+  } else if (!isResolved(r)) {
+    const parts = [];
+    if (r.creatures.length) parts.push(plural(r.creatures.length, 'creature').replace(/^400 /, '400+ '));
+    if (r.files.length) parts.push(plural(r.files.length, 'model file'));
+    res.innerHTML = parts.length
+      ? `<span class="m">${parts.join(' and ')} match, pick one below</span>`
+      : '<span style="color:var(--bad)">no creature or model with that name</span>';
+    if (i === active && parts.length) { suggEl.innerHTML = matchesHTML(r); row.classList.add('act'); }
+  } else {
+    const v = verdict(SETS[r.mi]), cat = categoryOf(r.did), name = nameOf(r);
+    if (cat) row.style.setProperty('--c', cat.color);
+    res.className = 'res hit';
+    res.innerHTML = `${pill(v.code)}${categoryBox(r.did)}<span class="what">${name ? esc(name) + ' · ' : ''}<code class="file">${esc(fileName(MODELS[r.mi][0]))}</code></span>`;
+    if (r.did != null) inside.innerHTML = `${r.entry ? `${WIKI_ENTRY} <b>${r.entry}</b> · ` : ''}${WIKI_DISPLAY} <b>${r.did}</b>`;
+  }
+}
+
+function matchesHTML(r) {
+  let h = `<div class="sh"><span></span><span>Source</span><span>Name</span><span>Model</span><span>${WIKI_ENTRY}</span><span>${WIKI_DISPLAY}</span><span>Missing</span></div>`;
+  r.creatures.slice(0, MAX_MATCHES).forEach(([ci, d]) => {
+    const c = CREATURES[ci], mi = D.displays[d], v = verdict(SETS[mi]);
+    h += `<button data-pick="npc ${c[0]}/${d}">${pill(v.code)}${badge(CREATURE_CATEGORY)}
+      <span class="cut">${esc(c[1])}${c[2] ? ` <small>&lt;${esc(c[2])}&gt;</small>` : ''}</span>
+      <span class="cut"><code class="file">${esc(fileName(MODELS[mi][0]))}</code></span>
+      <span class="num">${c[0]}</span><span class="num">${d}</span>
+      <span class="miss cut">${missingHTML(v)}</span></button>`;
+  });
+  r.files.slice(0, MAX_MATCHES).forEach(k => {
+    const v = verdict(SETS[k]), ids = DISPLAYS_OF_MODEL[k];
+    h += `<button data-pick="${ids ? ids[0] : esc(MODELS[k][0])}">${pill(v.code)}${badge('Model file')}
+      <span class="cut" title="${esc(MODELS[k][0])}">${esc(folderName(MODELS[k][0]))}</span>
+      <span class="cut"><code class="file">${esc(fileName(MODELS[k][0]))}</code></span>
+      <span class="num m">—</span><span class="num m">${ids ? plural(ids.length, 'display ID') : 'none'}</span>
+      <span class="miss cut">${missingHTML(v)}</span></button>`;
+  });
+  if (r.creatures.length + r.files.length > MAX_MATCHES) h += '<div class="m s13 more">Showing the first matches. Keep typing to narrow it down.</div>';
+  return h;
+}
+
+function setActive(i) {
+  const old = active;
+  active = i;
+  if (old !== i) renderRow(old);
+  renderRow(i);
+}
+/* keeps the row being edited, and its matches table, in view */
+function reveal(i) {
+  const row = rowEl(i);
+  if (!row) return;
+  const top = row.offsetTop - 4, bottom = row.offsetTop + row.offsetHeight + 8;
+  if (bottom > rowsEl.scrollTop + rowsEl.clientHeight) rowsEl.scrollTop = bottom - rowsEl.clientHeight;
+  if (top < rowsEl.scrollTop) rowsEl.scrollTop = top;
+  if (suggEl.innerHTML) suggEl.scrollIntoView({block: 'nearest'});
+}
+const scrollToLast = () => { rowsEl.scrollTop = rowsEl.scrollHeight; };
+function refresh() { renderRows(); save(); renderResults(); }
+
+/* adds display IDs (or other row text) that are not in the list yet; returns how many were added */
+function addModels(list) {
+  const have = new Set(models.map(x => x.trim()));
+  models = models.filter(x => x.trim());
+  let added = 0;
+  for (const v of list.map(String)) {
+    if (!have.has(v)) { models.push(v); have.add(v); added++; }
+  }
+  if (!models.length) models = [''];
+  refresh();
+  if (added) scrollToLast();
+  return added;
+}
+
+rowsEl.addEventListener('input', e => {
+  const row = e.target.closest('.mrow');
+  if (!row) return;
+  const i = +row.dataset.i;
+  models[i] = e.target.value;
+  setActive(i);
+  save();
+  renderResults();
+  reveal(i);
+});
+rowsEl.addEventListener('focusin', e => {
+  const row = e.target.closest('.mrow');
+  if (row && e.target.tagName === 'INPUT') setActive(+row.dataset.i);
+});
+rowsEl.addEventListener('click', e => {
+  const rm = e.target.closest('.rm');
+  if (!rm) return;
+  models.splice(+rm.closest('.mrow').dataset.i, 1);
+  if (!models.length) models = [''];
+  selected = 0;
+  refresh();
+});
+suggEl.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  models[active] = b.dataset.pick;
+  refresh();
+});
+$('add').onclick = () => {
+  models.push('');
+  active = models.length - 1;
+  refresh();
+  const inputs = rowsEl.querySelectorAll('input');
+  inputs[inputs.length - 1].focus();
+  scrollToLast();
+};
+$('clear').onclick = () => { models = ['']; selected = 0; refresh(); };
+
+/* shapeshift buttons */
+[[892, 'Cat'], [2281, 'Bear'], [918, 'Travel'], [2428, 'Aquatic'], [15374, 'Moonkin'], [864, 'Tree of Life'],
+ [20857, 'Flight'], [21243, 'Swift Flight'], [4613, 'Ghost Wolf'], [25277, 'Metamorphosis']].forEach(([d, label]) => {
+  if (D.displays[d] === undefined) return;
+  const b = document.createElement('button');
+  b.className = 'chipb';
+  b.textContent = label;
+  b.title = 'Add display ID ' + d;
+  b.onclick = () => addModels([d]);
+  $('quick').insertBefore(b, $('quick').querySelector('.sp'));
+});
+
+/* examples dropdown */
+(function () {
+  if (!EXAMPLES.length) { $('exline').style.display = 'none'; return; }
+  const unique = list => [...new Set(list.map(e => e.d))];
+  const isPerk = e => e.g.startsWith('Class perk');
+  const sets = {all: unique(EXAMPLES), cos: unique(EXAMPLES.filter(e => !isPerk(e))), per: unique(EXAMPLES.filter(isPerk))};
+  const groups = {};
+  EXAMPLES.forEach(e => (groups[e.g] = groups[e.g] || []).push(e));
+  let h = `<option value="all">All ${sets.all.length} examples</option>
+    <option value="cos">All costumes (${sets.cos.length})</option>
+    <option value="per">All class perks (${sets.per.length})</option>`;
+  for (const g in groups) {
+    h += `<optgroup label="${esc(g)}">` + groups[g].map(e => {
+      const mi = D.displays[e.d];
+      return `<option value="${e.d}">${mi === undefined ? '?' : SYMBOL[verdict(SETS[mi]).code]} ${esc(e.n)} (${e.d})</option>`;
+    }).join('') + '</optgroup>';
+  }
+  $('exsel').innerHTML = h;
+  $('exadd').onclick = () => {
+    const v = $('exsel').value, n = addModels(sets[v] || [+v]);
+    say(n ? `Added ${plural(n, 'model')} to the list.` : 'Already in the list.');
+  };
+})();
+
+/* =====================================================================
+   Results
+   ===================================================================== */
+const out = $('out');
+
+function resolvedRows() {
+  const rows = [];
+  models.forEach(v => { const r = resolve(v); if (isResolved(r)) rows.push(r); });
+  return rows;
+}
+/* what a normal player has that the model lacks, and the other way round */
+function compare(s) {
+  return {
+    missing: [...COMMON].filter(i => !s.has(i)).sort((a, b) => a - b),
+    extra: [...s].filter(i => !COMMON.has(i)).sort((a, b) => a - b),
+  };
+}
+
+function renderResults() {
+  current = resolvedRows();
+  if (!current.length) { out.innerHTML = ''; return; }
+  const codeOf = r => verdict(SETS[r.mi]).code;
+  if (filter && !current.some(r => codeOf(r) === filter)) filter = '';
+  if (selected >= current.length) selected = 0;
+  if (filter && codeOf(current[selected]) !== filter) selected = current.findIndex(r => codeOf(r) === filter);
+  out.innerHTML = (current.length > 1 ? summaryHTML(current, false) : '') + `<div id="detail">${detailHTML(current[selected])}</div>`;
+}
+
+/* `forExport` gives the plain version used by the downloaded HTML page: no filter buttons, row links instead of clicks */
+function summaryHTML(rows, forExport) {
+  const verdicts = rows.map(r => verdict(SETS[r.mi]));
+  const counts = {ok: 0, warn: 0, bad: 0};
+  verdicts.forEach(v => counts[v.code]++);
+
+  const tally = ['ok', 'warn', 'bad'].filter(k => counts[k]).map(k => {
+    const text = `${pill(k)} ${counts[k]} ${COUNT_WORD[k]}`;
+    return forExport ? `<span>${text}</span>` : `<button class="fp${filter === k ? ' on' : filter ? ' dim' : ''}" data-f="${k}" title="Show only these">${text}</button>`;
+  }).join(' &nbsp; ');
+  const hint = forExport ? '' : filter
+    ? ` &nbsp;<button class="fp all" data-f="">Show all ${rows.length}</button>`
+    : ' &nbsp;·&nbsp; click one of these to show only those models; click a row to see its details below';
+
+  let h = `<div class="card"><h2>${plural(rows.length, 'model')}</h2><div class="m s13">${tally}${hint}</div>
+    <div class="tw"${forExport ? ' style="max-height:none"' : ''}><table class="sumt"><thead><tr>
+      <th>#</th><th title="creature_template_model.CreatureDisplayID / creature_model_info.DisplayID">Display ID</th><th>Name</th><th>Category</th><th>Model</th>
+      <th class="c" title="✓ has everything a player needs · ⚠ some animations missing · ✗ cannot walk, run or swim">Works?</th>
+      ${NEEDS.map(n => `<th class="c">${n[0]}</th>`).join('')}
+      <th title="Which of the columns on the left this model lacks">Missing</th>
+    </tr></thead><tbody>`;
+  rows.forEach((r, k) => {
+    const s = SETS[r.mi], v = verdicts[k], cat = categoryOf(r.did), name = nameOf(r);
+    if (!forExport && filter && v.code !== filter) return;
+    h += `<tr data-r="${k}"${!forExport && k === selected ? ' class="sel"' : ''}>
+      <td>${forExport ? `<a href="#m${k}">${k + 1}</a>` : k + 1}</td>
+      <td>${r.did != null ? r.did : '—'}</td>
+      <td class="nm" title="${esc(name)}">${esc(name)}</td>
+      <td class="ct"${cat ? ` style="--c:${cat.color}"` : ''}>${categoryBox(r.did)}</td>
+      <td class="md" title="${esc(MODELS[r.mi][0])}"><code class="file">${esc(fileName(MODELS[r.mi][0]))}</code></td>
+      <td class="c">${pill(v.code)}</td>
+      ${NEEDS.map(n => n[1](s) ? '<td class="c y">✓</td>' : '<td class="c n">✗</td>').join('')}
+      <td class="ms">${missingHTML(v)}</td></tr>`;
+  });
+  return h + `</tbody></table></div>
+    <div class="m s13" style="margin-top:8px">Display ID = ${WIKI_DISPLAY}. Creatures are looked up by ${WIKI_ENTRY}.</div></div>`;
+}
+
+function detailHTML(r) {
+  const s = SETS[r.mi], v = verdict(s), ids = DISPLAYS_OF_MODEL[r.mi] || [], name = nameOf(r);
+  const {missing, extra} = compare(s), seen = notices(s);
+  const chips = (list, f) => `<div class="chips">${list.map(f).join('') || '<span class="m">Nothing.</span>'}</div>`;
+
+  let h = `<div class="card"><div class="verdict"><div class="badge v-${v.code}">${SYMBOL[v.code]}</div><div style="flex:1;min-width:0">
+      <h2>${v.text}</h2>
+      <div>${r.did != null ? `Display ID <b>${r.did}</b>${name ? ' · ' + esc(name) : ''} · ` : ''}<code>${esc(MODELS[r.mi][0])}</code></div>
+      <div class="m s13">${plural(s.size, 'animation')} · ${plural(ids.length, 'display ID')} use this model · file from ${esc(MODELS[r.mi][2])}</div>
+    </div></div>
+    <ul class="notice">${seen.length ? seen.map(x => `<li>${x}</li>`).join('') : '<li class="good">Nothing a player would notice: it has every important movement, combat and casting animation.</li>'}</ul></div>`;
+
+  h += '<div class="groups">' + DETAIL_GROUPS.map(([title, items]) => `<div class="card"><h2>${title}</h2>` + items.map(([label, id]) => {
+    const has = s.has(id);
+    const note = COMMON.has(id) ? '' : has ? 'players do not have this one' : 'players do not have it either';
+    return `<div class="it${has ? '' : ' missing'}"><span class="${has ? 'y' : 'n'}">${has ? '✓' : '✗'}</span><span>
+      ${has ? label : `<b>${label}</b><small>plays ${esc(playsText(plays(s, id)))} instead</small>`}${note ? `<small>${note}</small>` : ''}</span></div>`;
+  }).join('') + '</div>').join('') + '</div>';
+
+  h += `<details><summary>Everything a normal player has that this model lacks (${missing.length})</summary>${chips(missing, i => `<span class="chip miss">${esc(animName(i))} <small>→ ${esc(playsText(plays(s, i)))}</small></span>`)}</details>`;
+  h += `<details><summary>All animations in this model (${s.size})</summary>${chips([...s].sort((a, b) => a - b), i => `<span class="chip">${esc(animName(i))} <small>${i}</small></span>`)}</details>`;
+  if (extra.length) h += `<details><summary>Animations this model has that not every player has (${extra.length})</summary>${chips(extra, i => `<span class="chip">${esc(animName(i))}</span>`)}</details>`;
+  h += `<details><summary>Display IDs that use this model (${ids.length})</summary>${chips(ids.slice(0, 400), i => `<span class="chip">${i}</span>`)}${ids.length > 400 ? '<div class="m s13">Only the first 400 are shown.</div>' : ''}</details>`;
+  return h;
+}
+
+out.addEventListener('click', e => {
+  const f = e.target.closest('.fp');
+  if (f) { filter = filter === f.dataset.f ? '' : f.dataset.f; renderResults(); return; }
+  const tr = e.target.closest('.sumt tbody tr');
+  if (!tr) return;
+  selected = +tr.dataset.r;
+  out.querySelectorAll('.sumt tr.sel').forEach(x => x.classList.remove('sel'));
+  tr.classList.add('sel');
+  $('detail').innerHTML = detailHTML(current[selected]);
+});
+
+/* =====================================================================
+   Share code (step 2)
+   ===================================================================== */
+function say(text, isError) {
+  $('msg').textContent = text;
+  $('msg').style.color = isError ? 'var(--bad)' : '';
+}
+function makeCode() {
+  const json = JSON.stringify({m: models.map(x => x.trim()).filter(Boolean)});
+  return 'MAC1.' + btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function readCode(code) {
+  code = code.trim();
+  if (!code.startsWith('MAC1.')) throw new Error('That is not a share code from this page.');
+  let b64 = code.slice(5).replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) b64 += '=';
+  let o;
+  try { o = JSON.parse(decodeURIComponent(escape(atob(b64)))); } catch (e) { o = null; }
+  if (!o || !Array.isArray(o.m)) throw new Error('The code is damaged or incomplete.');
+  return o.m.map(String).slice(0, 2000);
+}
+$('copy').onclick = () => {
+  const code = makeCode(), box = $('code');
+  box.value = code;
+  box.select();
+  let copied = false;
+  try { copied = document.execCommand('copy'); } catch (e) { /* fall through */ }
+  if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
+  say(copied ? 'Share code copied. Send it to someone; they paste it in the box and press Load code.' : 'Share code is in the box, copy it from there.');
+};
+$('load').onclick = () => {
+  try {
+    const list = readCode($('code').value);
+    models = list.length ? list : [''];
+    selected = 0;
+    refresh();
+    scrollToLast();
+    say(`Loaded: ${plural(list.length, 'model')}.`);
+  } catch (e) {
+    say(e.message || 'The code could not be read.', true);
+  }
+};
+
+/* =====================================================================
+   Downloads (step 2)
+   ===================================================================== */
+const today = () => new Date().toISOString().slice(0, 10);
+const stripTags = h => h.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+
+function download(name, blob) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+function rowsToExport() {
+  renderResults();
+  if (!current.length) say('Add at least one model first.', true);
+  return current;
+}
+
+/* a plain page with everything filled in; needs no scripts */
+$('html').onclick = () => {
+  const rows = rowsToExport();
+  if (!rows.length) return;
+  const css = document.querySelector('style').textContent + ICON_CSS + '.sumt tbody tr{cursor:default}';
+  const body = `<h1>Model animation report</h1><p class="sub">${today()} · Compared with the animations every playable race and gender has.</p>`
+    + summaryHTML(rows, true)
+    + rows.map((r, k) => `<h2 class="dh" id="m${k}">${k + 1}. ${r.did != null ? 'Display ID ' + r.did : esc(fileName(MODELS[r.mi][0]))}${nameOf(r) ? ' · ' + esc(nameOf(r)) : ''}</h2>` + detailHTML(r)).join('')
+    + `<details><summary>Share code for this report</summary><code>${esc(makeCode())}</code></details>`;
+  const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Model animation report</title><style>${css}</style></head><body><main>${body}</main></body></html>`;
+  download('model-animation-report.html', new Blob([page], {type: 'text/html'}));
+  say('HTML page downloaded. It is a plain page with everything filled in, no scripts needed.');
+};
+
+$('xlsx').onclick = async () => {
+  const rows = rowsToExport();
+  if (!rows.length) return;
+  const GOOD = 3, POOR = 2;                                  // cell styles, see XLSX_STYLES
+  const yesNo = b => b ? {v: 'yes', s: GOOD} : {v: 'NO', s: POOR};
+  const keys = DETAIL_GROUPS.flatMap(g => g[1]);
+
+  const summary = [['#', 'Display ID', 'Name', 'Source', 'Category', 'Model file', 'Works?', 'Verdict', ...NEEDS.map(n => n[0]),
+    'In-air jump plays', 'Animations', 'Animations every player has that it lacks', 'What players will notice']];
+  const keySheet = [['#', 'Display ID', 'Name', 'Model file', 'Works?', ...keys.map(k => k[0])]];
+  const missingSheet = [['#', 'Display ID', 'Name', 'Model file', 'Animation ID', 'Animation', 'Plays instead']];
+
+  rows.forEach((r, k) => {
+    const s = SETS[r.mi], v = verdict(s), cat = categoryOf(r.did);
+    const id = r.did != null ? r.did : '', name = nameOf(r), path = MODELS[r.mi][0];
+    const works = {v: WORD[v.code], s: v.code === 'ok' ? GOOD : POOR};
+    const {missing} = compare(s);
+    summary.push([k + 1, id, name, sourceOf(r.did), cat ? cat.name : '', path, works, v.text, ...NEEDS.map(n => yesNo(n[1](s))),
+      s.has(38) ? 'its own' : playsText(plays(s, 38)), s.size, missing.length, notices(s).map(stripTags).join(' | ') || 'Nothing noticeable']);
+    keySheet.push([k + 1, id, name, path, works, ...keys.map(([, a]) => s.has(a) ? {v: 'yes', s: GOOD} : {v: '→ ' + playsText(plays(s, a)), s: POOR})]);
+    missing.forEach(a => missingSheet.push([k + 1, id, name, path, a, animName(a), playsText(plays(s, a))]));
+  });
+  const info = [['About this file'], ['Generated ' + today()], ['Compared with the animations every playable race and gender has.'], [''], ['Share code'], [makeCode()]];
+
+  download('model-animation-report.xlsx', await xlsxBlob([
+    {name: 'Summary', rows: summary, filter: true, widths: [5, 11, 34, 17, 30, 52, 8, 46, ...NEEDS.map(() => 9), 20, 11, 14, 120]},
+    {name: 'Key animations', rows: keySheet, filter: true, widths: [5, 11, 34, 52, 8, ...keys.map(() => 22)]},
+    {name: 'All missing', rows: missingSheet, filter: true, widths: [5, 11, 34, 52, 13, 26, 26]},
+    {name: 'Info', rows: info, widths: [70]},
+  ]));
+  say('Excel file downloaded (sheets: Summary, Key animations, All missing, Info).');
+};
+
+/* ---------- minimal .xlsx writer: a zip of a few XML files ---------- */
+const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+const NS_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+const NS_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+const NS_PKG = 'http://schemas.openxmlformats.org/package/2006/relationships';
+const CT = 'application/vnd.openxmlformats-officedocument.spreadsheetml.';
+/* cell styles: 0 normal, 1 header (bold, grey), 2 red fill, 3 green fill */
+const XLSX_STYLES = `${XML_HEAD}<styleSheet xmlns="${NS_MAIN}">`
+  + '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
+  + '<fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>'
+  + ['FFE7E3D8', 'FFF8D7D4', 'FFDDF1E3'].map(c => `<fill><patternFill patternType="solid"><fgColor rgb="${c}"/></patternFill></fill>`).join('') + '</fills>'
+  + '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+  + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+  + '<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+  + '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>'
+  + '<xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/>'
+  + '<xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/></cellXfs>'
+  + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+
+const xmlEsc = s => String(s).replace(/[&<>]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[c])).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+function columnLetters(n) {
+  let s = '';
+  for (n++; n; n = (n - 1 - (n - 1) % 26) / 26) s = String.fromCharCode(65 + (n - 1) % 26) + s;
+  return s;
+}
+/* a cell is a string, a number, or {v: value, s: style}; the first row is the header */
+function sheetXML(sheet) {
+  const rows = sheet.rows, columns = rows[0].length;
+  let x = `${XML_HEAD}<worksheet xmlns="${NS_MAIN}"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>`;
+  for (let c = 0; c < columns; c++) x += `<col min="${c + 1}" max="${c + 1}" width="${(sheet.widths && sheet.widths[c]) || 14}" customWidth="1"/>`;
+  x += '</cols><sheetData>';
+  rows.forEach((row, ri) => {
+    x += `<row r="${ri + 1}">`;
+    row.forEach((cell, ci) => {
+      if (cell === '' || cell == null) return;
+      let style = ri === 0 ? 1 : 0, value = cell;
+      if (typeof cell === 'object') { style = cell.s; value = cell.v; }
+      const at = `r="${columnLetters(ci)}${ri + 1}"${style ? ` s="${style}"` : ''}`;
+      x += typeof value === 'number' ? `<c ${at}><v>${value}</v></c>` : `<c ${at} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(value)}</t></is></c>`;
+    });
+    x += '</row>';
+  });
+  return x + '</sheetData>' + (sheet.filter ? `<autoFilter ref="A1:${columnLetters(columns - 1)}${rows.length}"/>` : '') + '</worksheet>';
+}
+function xlsxBlob(sheets) {
+  const files = [
+    ['[Content_Types].xml', `${XML_HEAD}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="${CT}sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="${CT}styles+xml"/>`
+      + sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="${CT}worksheet+xml"/>`).join('') + '</Types>'],
+    ['_rels/.rels', `${XML_HEAD}<Relationships xmlns="${NS_PKG}"><Relationship Id="rId1" Type="${NS_REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ['xl/workbook.xml', `${XML_HEAD}<workbook xmlns="${NS_MAIN}" xmlns:r="${NS_REL}"><sheets>`
+      + sheets.map((s, i) => `<sheet name="${xmlEsc(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('') + '</sheets></workbook>'],
+    ['xl/_rels/workbook.xml.rels', `${XML_HEAD}<Relationships xmlns="${NS_PKG}">`
+      + sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${NS_REL}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')
+      + `<Relationship Id="rId${sheets.length + 1}" Type="${NS_REL}/styles" Target="styles.xml"/></Relationships>`],
+    ['xl/styles.xml', XLSX_STYLES],
+  ];
+  sheets.forEach((s, i) => files.push([`xl/worksheets/sheet${i + 1}.xml`, sheetXML(s)]));
+  return zipBlob(files, CT + 'sheet');
+}
+
+/* ---------- minimal zip writer (deflate when the browser supports it, stored otherwise) ---------- */
+const crc32 = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return bytes => {
+    let c = -1;
+    for (let i = 0; i < bytes.length; i++) c = table[(c ^ bytes[i]) & 255] ^ (c >>> 8);
+    return (c ^ -1) >>> 0;
+  };
+})();
+async function deflate(bytes) {
+  if (typeof CompressionStream === 'undefined') return null;
+  try {
+    return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
+  } catch (e) { return null; }
+}
+async function zipBlob(files, type) {
+  const enc = new TextEncoder(), local = [], central = [];
+  let offset = 0;
+  for (const [name, text] of files) {
+    const nameBytes = enc.encode(name), raw = enc.encode(text), packed = await deflate(raw);
+    const data = packed || raw, method = packed ? 8 : 0, crc = crc32(raw);
+    /* fields shared by the local header (at 4) and the central entry (at 6): version, flags (UTF-8), method, time, date, crc, sizes, name length */
+    const common = (view, at) => {
+      view.setUint16(at, 20, true); view.setUint16(at + 2, 0x800, true); view.setUint16(at + 4, method, true);
+      view.setUint16(at + 6, 0, true); view.setUint16(at + 8, 0x21, true); view.setUint32(at + 10, crc, true);
+      view.setUint32(at + 14, data.length, true); view.setUint32(at + 18, raw.length, true); view.setUint16(at + 22, nameBytes.length, true);
+    };
+    const head = new DataView(new ArrayBuffer(30));
+    head.setUint32(0, 0x04034b50, true); common(head, 4);
+    local.push(new Uint8Array(head.buffer), nameBytes, data);
+    const entry = new DataView(new ArrayBuffer(46));
+    entry.setUint32(0, 0x02014b50, true); entry.setUint16(4, 20, true); common(entry, 6); entry.setUint32(42, offset, true);
+    central.push(new Uint8Array(entry.buffer), nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  }
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, central.reduce((n, x) => n + x.length, 0), true); end.setUint32(16, offset, true);
+  return new Blob([...local, ...central, new Uint8Array(end.buffer)], {type});
+}
+
+/* =====================================================================
+   Start
+   ===================================================================== */
+renderRows();
+renderResults();
+scrollToLast();
+</script>
+</main>
+</body>
+</html>
